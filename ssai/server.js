@@ -1,13 +1,21 @@
 const express = require('express');
 const fs = require('fs');
 
+const { fetchVastAd } = require('./vast');
+const { getUserProfile, chooseAdServer } = require('./targeting');
+const { fireBeacon } = require('./tracker');
+
 const app = express();
 
-// insert ad every N segments
 const AD_INTERVAL = 5;
 
-app.get('/playlist.m3u8', (req, res) => {
+app.get('/playlist.m3u8', async (req, res) => {
   let playlist = fs.readFileSync('/hls/live.m3u8', 'utf8');
+
+  const user = getUserProfile(req);
+  const vastUrl = chooseAdServer(user);
+
+  const adUrl = await fetchVastAd(vastUrl);
 
   const lines = playlist.split('\n');
   let segmentCount = 0;
@@ -19,9 +27,12 @@ app.get('/playlist.m3u8', (req, res) => {
     if (line.endsWith('.ts')) {
       segmentCount++;
 
-      if (segmentCount % AD_INTERVAL === 0) {
+      if (segmentCount % AD_INTERVAL === 0 && adUrl) {
         output.push('#EXTINF:5.0,');
-        output.push('/ad/ad1.ts');
+        output.push(adUrl);
+
+        // fire impression beacon (example)
+        fireBeacon("https://tracker.example.com/impression");
       }
     }
   }
@@ -32,4 +43,4 @@ app.get('/playlist.m3u8', (req, res) => {
 
 app.use('/ad', express.static('/ads'));
 
-app.listen(4000, () => console.log("SSAI mid-roll running"));
+app.listen(4000, () => console.log("Advanced SSAI running"));
