@@ -1,0 +1,9 @@
+{
+  "name": "ssai",
+  "version": "1.0.0",
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "xml2js": "^0.6.2"
+  }
+}
