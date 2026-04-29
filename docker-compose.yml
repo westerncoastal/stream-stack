@@ -1,54 +1,48 @@
 version: "3.9"
 
 services:
-  rtmp:
-    image: alfg/nginx-rtmp
-    container_name: rtmp
+  streaming:
+    image: bluenviron/mediamtx
+    container_name: streaming
     ports:
-      - "1935:1935"
-      - "8080:80"
+      - "1935:1935"   # RTMP
+      - "8888:8888"   # HLS
+      - "8890:8890"   # WebRTC
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./hls:/tmp/hls
+      - ./mediamtx.yml:/mediamtx.yml
     restart: unless-stopped
 
   ssai:
     image: node:20
-    container_name: ssai
     working_dir: /app
     volumes:
       - ./ssai:/app
-      - ./ads:/ads
       - ./hls:/hls
     command: sh -c "npm install && node server.js"
     ports:
       - "4000:4000"
     restart: unless-stopped
 
+  prebid:
+    image: prebid/prebid-server
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
   revive:
     image: reviveadserver/revive-adserver
-    container_name: revive
     ports:
       - "8081:80"
     restart: unless-stopped
 
-  prometheus:
-    image: prom/prometheus
-    container_name: prometheus
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  analytics:
+    image: posthog/posthog
     ports:
-      - "9090:9090"
+      - "9000:8000"
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana
-    container_name: grafana
-    volumes:
-      - grafana-data:/var/lib/grafana
     ports:
       - "3000:3000"
     restart: unless-stopped
-
-volumes:
-  grafana-data:
