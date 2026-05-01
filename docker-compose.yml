@@ -10,6 +10,7 @@ services:
       - "8890:8890"   # WebRTC
     volumes:
       - ./mediamtx.yml:/mediamtx.yml
+      - ./hls:/hls  # Add this line so SSAI can see the video segments
     restart: unless-stopped
 
   ssai:
