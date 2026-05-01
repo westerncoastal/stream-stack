@@ -1,49 +1,68 @@
 version: "3.9"
 
 services:
+  # 1. Video Core (256MB Cap)
   streaming:
-    image: bluenviron/mediamtx
+    image: bluenviron/mediamtx:latest-alpine
     container_name: streaming
     ports:
-      - "1935:1935"   # RTMP
-      - "8888:8888"   # HLS
-      - "8890:8890"   # WebRTC
+      - "1935:1935" # RTMP In
+      - "8888:8888" # HLS Out
     volumes:
-      - ./mediamtx.yml:/mediamtx.yml
-      - ./hls:/hls  # Add this line so SSAI can see the video segments
+      - ./hls:/hls
+    mem_limit: 256M
     restart: unless-stopped
 
+  # 2. SSAI Stitcher (128MB Cap)
   ssai:
-    image: node:20
+    image: node:20-alpine
     working_dir: /app
     volumes:
       - ./ssai:/app
       - ./hls:/hls
-    command: sh -c "npm install && node server.js"
+    environment:
+      - SERVER_IP=${SERVER_IP}
+    command: sh -c "npm install --production && node server.js"
     ports:
       - "4000:4000"
+    mem_limit: 128M
     restart: unless-stopped
 
-  prebid:
-    image: prebid/prebid-server
+  # 3. Payments (64MB Cap)
+  payments:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./payments:/app
+    environment:
+      - STRIPE_KEY=${STRIPE_KEY}
+      - DOMAIN=${DOMAIN}
+    command: sh -c "npm install --production && node server.js"
     ports:
-      - "8000:8000"
+      - "4100:4100"
+    mem_limit: 64M
     restart: unless-stopped
 
+  # 4. Ad Server Database (150MB Cap)
+  revive-db:
+    image: mariadb:10.6
+    environment:
+      MYSQL_DATABASE: revive
+      MYSQL_USER: revive
+      MYSQL_PASSWORD: revive_password
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - ./mysql:/var/lib/mysql
+    mem_limit: 150M
+
+  # 5. Ad Management UI (150MB Cap)
   revive:
-    image: reviveadserver/revive-adserver
+    image: reviveadserver/revive-adserver:latest
     ports:
       - "8081:80"
-    restart: unless-stopped
-
-  analytics:
-    image: posthog/posthog
-    ports:
-      - "9000:8000"
-    restart: unless-stopped
-
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3000:3000"
+    depends_on:
+      - revive-db
+    volumes:
+      - ./revive_conf:/var/www/html/var
+    mem_limit: 150M
     restart: unless-stopped
