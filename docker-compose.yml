@@ -1,13 +1,12 @@
 version: "3.9"
 
 services:
-  # 1. Video Core: Handles HLS and RTMP processing
   streaming:
     image: bluenviron/mediamtx:latest-alpine
     container_name: streaming
     ports:
-      - "1935:1935" # RTMP Ingest (OBS)
-      - "8888:8888" # HLS Output
+      - "1935:1935"
+      - "8888:8888"
     volumes:
       - ./hls:/hls
     deploy:
@@ -16,7 +15,6 @@ services:
           memory: 256M
     restart: unless-stopped
 
-  # 2. SSAI Engine: Handles Streamlink Relays, Scheduling, and Ad Stitching
   ssai:
     image: node:20-alpine
     container_name: ssai
@@ -27,7 +25,6 @@ services:
       - ./ads:/ads
     environment:
       - SERVER_IP=${SERVER_IP}
-    # Installs Streamlink + Python on startup to handle Twitch/Kick relays
     command: >
       sh -c "apk add --no-cache python3 py3-pip streamlink && 
              npm install && 
@@ -40,32 +37,8 @@ services:
           memory: 200M
     restart: unless-stopped
 
-  # 3. Payments & Uploads: Handles Stripe and 2GB Busboy uploads
-  payments:
-    image: node:20-alpine
-    container_name: payments
-    working_dir: /app
-    volumes:
-      - ./payments:/app
-      - ./ads:/ads
-    environment:
-      - STRIPE_KEY=${STRIPE_KEY}
-      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
-      - DOMAIN=${DOMAIN}
-      - SERVER_IP=${SERVER_IP}
-    command: sh -c "npm install && node server.js"
-    ports:
-      - "4100:4100"
-    deploy:
-      resources:
-        limits:
-          memory: 80M
-    restart: unless-stopped
-
-  # 4. Ad Server Database: Lightweight MariaDB for Revive
   revive-db:
     image: mariadb:10.6
-    container_name: revive-db
     environment:
       MYSQL_DATABASE: revive
       MYSQL_USER: revive
@@ -77,12 +50,9 @@ services:
       resources:
         limits:
           memory: 150M
-    restart: unless-stopped
 
-  # 5. Ad Management UI: Revive Adserver for VAST delivery
   revive:
     image: reviveadserver/revive-adserver:latest
-    container_name: revive
     ports:
       - "8081:80"
     depends_on:
@@ -94,26 +64,3 @@ services:
         limits:
           memory: 180M
     restart: unless-stopped
-
-  # 6. Front Door: Serves the player and handles large client uploads
-  nginx:
-    image: nginx:alpine
-    container_name: nginx
-    ports:
-      - "80:80"
-    volumes:
-      - ./player:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ads:/ads
-      - /tmp/nginx_upload:/tmp/nginx_upload
-    deploy:
-      resources:
-        limits:
-          memory: 50M
-    restart: unless-stopped
-
-volumes:
-  hls:
-  ads:
-  mysql:
-  revive_conf:
