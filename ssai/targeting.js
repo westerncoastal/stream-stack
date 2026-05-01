@@ -1,3 +1,4 @@
+// ssai/targeting.js
 function getUserProfile(req) {
   return {
     ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
@@ -6,11 +7,18 @@ function getUserProfile(req) {
 }
 
 function chooseAdServer(user) {
-  // simple logic (expand later)
+  // Use the SERVER_IP injected by the cloud-init script
+  const ip = process.env.SERVER_IP || 'localhost';
+  
+  // zones=1 is the default for your first Revive video zone
+  const vastUrl = `http://${ip}:8081/www/delivery/fc.php?script=bannerTypeHtml:vastInlineHtml&zones=1`;
+
+  // Basic logic: you can append targeting parameters to the VAST URL
   if (user.userAgent.includes("Mobile")) {
-    return "https://example.com/mobile-vast.xml";
+    return `${vastUrl}&ct0=mobile`;
   }
-  return "https://example.com/desktop-vast.xml";
+
+  return vastUrl;
 }
 
 module.exports = { getUserProfile, chooseAdServer };
