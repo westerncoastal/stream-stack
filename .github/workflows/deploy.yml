@@ -12,18 +12,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 🔐 Login to GitHub Container Registry
+      # 🔐 Login to GHCR
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # 🐳 Build & push SSAI image
-      - name: Build & Push SSAI
+      # 🐳 Build SSAI image
+      - name: Build SSAI Image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}/ssai:latest ./ssai
-          docker push ghcr.io/${{ github.repository }}/ssai:latest
+          docker build -t ghcr.io/westerncoastal/stream-stack/ssai:latest ./ssai
+
+      # 📦 Push image
+      - name: Push SSAI Image
+        run: |
+          docker push ghcr.io/westerncoastal/stream-stack/ssai:latest
 
       # 🔒 Security scan
-      - name: Scan for vulnerabilities
+      - name: Scan vulnerabilities
         uses: aquasecurity/trivy-action@v0.20.0
         with:
           scan-type: fs
@@ -35,9 +39,3 @@ jobs:
         with:
           output: repomix-output.xml
           compress: true
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: repomix-output
-          path: repomix-output.xml
