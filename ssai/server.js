@@ -1,91 +1,113 @@
 const express = require('express');
-const Stripe = require('stripe');
+const fs = require('fs');
+const path = require('path');
+const { execFile } = require('child_process');
+const busboy = require('busboy');
+const schedule = require('node-schedule');
+
+const { fetchVastAd } = require('./vast');
+const { getUserProfile, chooseAdServer } = require('./targeting');
 
 const app = express();
+app.use(express.json());
 
-// ⚠️ JSON only for non-webhook routes
-app.use((req, res, next) => {
-  if (req.originalUrl === '/webhook') {
-    next();
-  } else {
-    express.json()(req, res, next);
-  }
-});
+// --- FAILOVER SOURCES ---
+let sources = [];
+let currentIndex = 0;
 
-const stripe = new Stripe(process.env.STRIPE_KEY);
+const getCurrentSource = () => sources[currentIndex] || null;
 
-// 1. Create checkout
-app.post('/create-checkout', async (req, res) => {
-  try {
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: 'Ad Campaign Credits'
-          },
-          unit_amount: 5000
-        },
-        quantity: 1
-      }],
-      success_url: `https://${process.env.DOMAIN}/success`,
-      cancel_url: `https://${process.env.DOMAIN}/cancel`
+// --- SAFE STREAMLINK ---
+const getLiveUrl = (providerUrl) => {
+  return new Promise((resolve, reject) => {
+    execFile('streamlink', ['--stream-url', providerUrl, 'best'], (err, stdout) => {
+      if (err) return reject(err);
+      resolve(stdout.trim());
     });
+  });
+};
 
-    res.json(session);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Checkout failed");
+// --- VALIDATION ---
+const isValidUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    return ['http:', 'https:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
+// --- FAILOVER CHECK ---
+setInterval(async () => {
+  if (!sources.length) return;
+
+  try {
+    await fetch(getCurrentSource());
+  } catch {
+    console.log("⚠️ Switching stream...");
+    currentIndex = (currentIndex + 1) % sources.length;
+  }
+}, 5000);
+
+// 1. Add stream source
+app.get('/relay', async (req, res) => {
+  const { url } = req.query;
+
+  if (!isValidUrl(url)) {
+    return res.status(400).send("Invalid URL");
+  }
+
+  try {
+    const live = await getLiveUrl(url);
+    sources.push(live);
+
+    res.send({ status: "Added", total: sources.length });
+  } catch {
+    res.status(500).send("Streamlink failed");
   }
 });
 
-// 2. 🔒 SECURE WEBHOOK
-app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
-  const sig = req.headers['stripe-signature'];
+// 2. Upload ads (safe)
+app.post('/upload', (req, res) => {
+  const bb = busboy({ headers: req.headers });
 
-  let event;
+  bb.on('file', (name, file, info) => {
+    const safeName = path.basename(info.filename);
+    file.pipe(fs.createWriteStream(path.join('/ads', safeName)));
+  });
 
+  bb.on('close', () => res.send("Upload complete"));
+  req.pipe(bb);
+});
+
+// 3. SSAI playlist
+app.get('/playlist.m3u8', async (req, res) => {
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
+    const source = getCurrentSource();
+    if (!source) return res.status(404).send("No stream");
+
+    const live = await fetch(source).then(r => r.text());
+
+    const ad = await fetchVastAd(
+      chooseAdServer(getUserProfile(req))
     );
-  } catch (err) {
-    console.error("❌ Webhook signature failed:", err.message);
-    return res.sendStatus(400);
-  }
 
-  if (event.type === 'checkout.session.completed') {
-    console.log("✅ PAYMENT VERIFIED");
+    let stitched = live;
 
-    const session = event.data.object;
+    if (ad) {
+      stitched = live.replace(
+        '#EXTINF',
+        `#EXTINF:5.0,\n${ad}\n#EXTINF`
+      );
+    }
 
-    // TODO: store payment / activate ads safely
-    console.log("Session ID:", session.id);
-  }
+    res.set('Content-Type', 'application/vnd.apple.mpegurl');
+    res.send(stitched);
 
-  res.sendStatus(200);
-});
-
-// 3. Payouts
-app.post('/payout', async (req, res) => {
-  try {
-    const { account, amount } = req.body;
-
-    const transfer = await stripe.transfers.create({
-      amount,
-      currency: 'usd',
-      destination: account
-    });
-
-    res.json(transfer);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Payout failed");
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("Stream error");
   }
 });
 
-app.listen(4100, () => console.log("Payments running"));
+app.listen(4000, () => console.log("SSAI running"));
