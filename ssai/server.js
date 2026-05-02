@@ -1,98 +1,91 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const { execFile } = require('child_process');
-const busboy = require('busboy');
-const schedule = require('node-schedule');
-
-const { fetchVastAd } = require('./vast');
-const { getUserProfile, chooseAdServer } = require('./targeting');
+const Stripe = require('stripe');
 
 const app = express();
-app.use(express.json());
 
-let currentLiveSource = '/hls/live.m3u8';
-
-// --- SAFE STREAMLINK EXECUTION (FIXED COMMAND INJECTION) ---
-const getLiveUrl = (providerUrl) => {
-    return new Promise((resolve, reject) => {
-        execFile('streamlink', ['--stream-url', providerUrl, 'best'], (error, stdout) => {
-            if (error) return reject(error);
-            resolve(stdout.trim());
-        });
-    });
-};
-
-// --- INPUT VALIDATION ---
-const isValidUrl = (url) => {
-    try {
-        const parsed = new URL(url);
-        return ['http:', 'https:'].includes(parsed.protocol);
-    } catch {
-        return false;
-    }
-};
-
-// 1. Relay Trigger
-app.get('/relay', async (req, res) => {
-    const { url } = req.query;
-
-    if (!isValidUrl(url)) {
-        return res.status(400).send("Invalid URL");
-    }
-
-    try {
-        currentLiveSource = await getLiveUrl(url);
-        res.send({ status: "Relaying", source: url });
-    } catch (e) {
-        res.status(500).send("Streamlink failed");
-    }
+// ⚠️ JSON only for non-webhook routes
+app.use((req, res, next) => {
+  if (req.originalUrl === '/webhook') {
+    next();
+  } else {
+    express.json()(req, res, next);
+  }
 });
 
-// 2. Scheduler
-app.post('/schedule', (req, res) => {
-    const { url, time } = req.body;
+const stripe = new Stripe(process.env.STRIPE_KEY);
 
-    if (!isValidUrl(url)) {
-        return res.status(400).send("Invalid URL");
-    }
-
-    schedule.scheduleJob(new Date(time), async () => {
-        try {
-            currentLiveSource = await getLiveUrl(url);
-            console.log(`Job Started: ${url}`);
-        } catch (e) {
-            console.error("Schedule Error", e);
-        }
+// 1. Create checkout
+app.post('/create-checkout', async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: 'Ad Campaign Credits'
+          },
+          unit_amount: 5000
+        },
+        quantity: 1
+      }],
+      success_url: `https://${process.env.DOMAIN}/success`,
+      cancel_url: `https://${process.env.DOMAIN}/cancel`
     });
 
-    res.send({ status: "Event Scheduled", time });
+    res.json(session);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Checkout failed");
+  }
 });
 
-// 3. SAFE FILE UPLOAD (FIXED PATH TRAVERSAL)
-app.post('/upload', (req, res) => {
-    const bb = busboy({
-        headers: req.headers,
-        limits: { fileSize: 2 * 1024 * 1024 * 1024 }
+// 2. 🔒 SECURE WEBHOOK
+app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  const sig = req.headers['stripe-signature'];
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("❌ Webhook signature failed:", err.message);
+    return res.sendStatus(400);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    console.log("✅ PAYMENT VERIFIED");
+
+    const session = event.data.object;
+
+    // TODO: store payment / activate ads safely
+    console.log("Session ID:", session.id);
+  }
+
+  res.sendStatus(200);
+});
+
+// 3. Payouts
+app.post('/payout', async (req, res) => {
+  try {
+    const { account, amount } = req.body;
+
+    const transfer = await stripe.transfers.create({
+      amount,
+      currency: 'usd',
+      destination: account
     });
 
-    bb.on('file', (name, file, info) => {
-        const safeName = path.basename(info.filename);
-        const savePath = path.join('/ads', safeName);
-
-        const writeStream = fs.createWriteStream(savePath);
-        file.pipe(writeStream);
-    });
-
-    bb.on('close', () => res.send("Upload Finished"));
-
-    req.pipe(bb);
+    res.json(transfer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Payout failed");
+  }
 });
 
-// 4. Manifest Stitcher
-app.get('/playlist.m3u8', async (req, res) => {
-    res.set('Content-Type', 'application/vnd.apple.mpegurl');
-    res.send(`#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1280000\n${currentLiveSource}`);
-});
-
-app.listen(4000, () => console.log("SSAI & Relay Engine Active"));
+app.listen(4100, () => console.log("Payments running"));
