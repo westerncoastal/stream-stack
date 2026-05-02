@@ -1,21 +1,43 @@
-name: Deploy
+name: Build & Pack
 
 on:
   push:
     branches: [main]
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: SSH deploy
-        uses: appleboy/ssh-action@v1
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ⚡ Cache Docker layers for faster builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 🔨 Build containers (pre-build instead of server doing it)
+      - name: Build Docker images
+        run: docker compose build
+
+      # 🔒 Security scan (containers + repo)
+      - name: Scan for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.20.0
         with:
-          host: ${{ secrets.SERVER_IP }}
-          username: root
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            cd /opt/stack
-            git pull
-            docker compose up -d
+          scan-type: fs
+          severity: CRITICAL,HIGH
+
+      # 📦 Pack repo for AI / analysis
+      - name: Pack repository with Repomix
+        uses: yamadashy/repomix/.github/actions/repomix@main
+        with:
+          output: repomix-output.xml
+          compress: true
+
+      # 📁 Upload artifact
+      - name: Upload Repomix output
+        uses: actions/upload-artifact@v4
+        with:
+          name: repomix-output
+          path: repomix-output.xml
+          retention-days: 30
