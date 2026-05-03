@@ -8,34 +8,28 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      packages: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 🔐 Login to GHCR
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # 🐳 Build SSAI image
-      - name: Build SSAI Image
+      - name: Build image
         run: |
           docker build -t ghcr.io/westerncoastal/stream-stack/ssai:latest ./ssai
 
-      # 📦 Push image
-      - name: Push SSAI Image
+      - name: Push image
         run: |
           docker push ghcr.io/westerncoastal/stream-stack/ssai:latest
 
-      # 🔒 Security scan
-      - name: Scan vulnerabilities
+      - name: Scan image
         uses: aquasecurity/trivy-action@v0.20.0
         with:
-          scan-type: fs
+          image-ref: ghcr.io/westerncoastal/stream-stack/ssai:latest
           severity: CRITICAL,HIGH
-
-      # 📦 Repomix
-      - name: Pack repo
-        uses: yamadashy/repomix/.github/actions/repomix@main
-        with:
-          output: repomix-output.xml
-          compress: true
+          exit-code: 1
