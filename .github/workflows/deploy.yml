@@ -80,3 +80,17 @@ jobs:
         with:
           output: repomix-output.xml
           compress: true
+
+      # 🧠 Generate docs
+      - name: Build Repomix Docs
+        run: |
+          node scripts/repomix-to-md.js
+      
+      # 📦 Commit docs (safe)
+      - name: Commit docs
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/repomix-summary.md
+          git commit -m "docs: update repomix summary" || echo "no changes"
+          git push
