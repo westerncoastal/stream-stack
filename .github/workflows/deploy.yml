@@ -38,13 +38,17 @@ jobs:
       - name: Commit package-lock.json
         run: |
           cd ssai
-          if [ -f package-lock.json ]; then
-            git config user.name "github-actions"
-            git config user.email "actions@github.com"
-            git add package-lock.json
-            git commit -m "auto-add package-lock.json" || echo "No changes"
-            git push
-          fi
+      
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+      
+          git add package-lock.json
+      
+          git commit -m "auto-add package-lock.json" || echo "No changes"
+      
+          git pull --rebase origin main || true
+      
+          git push origin HEAD:main
 
       # 🔐 Login to GHCR
       - name: Login to GHCR
