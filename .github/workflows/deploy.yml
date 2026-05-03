@@ -1,80 +1,78 @@
 name: Build, Scan, and Push
 
 on:
-push:
-branches: [main]
+  push:
+    branches: [main]
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-```
-permissions:
-  contents: write      # needed to commit package-lock.json
-  packages: write      # needed to push to GHCR
+    permissions:
+      contents: write
+      packages: write
 
-steps:
-  # 📥 Checkout
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      # 📥 Checkout
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  # 🟢 Setup Node (needed to generate lockfile)
-  - name: Setup Node
-    uses: actions/setup-node@v4
-    with:
-      node-version: 20
+      # 🟢 Setup Node
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-  # 📦 Generate package-lock.json if missing
-  - name: Generate lockfile if missing
-    run: |
-      cd ssai
-      if [ ! -f package-lock.json ]; then
-        echo "No lockfile found. Generating..."
-        npm install
-      else
-        echo "Lockfile already exists."
-      fi
+      # 📦 Generate package-lock.json if missing
+      - name: Generate lockfile if missing
+        run: |
+          cd ssai
+          if [ ! -f package-lock.json ]; then
+            echo "No lockfile found. Generating..."
+            npm install
+          else
+            echo "Lockfile already exists."
+          fi
 
-  # 💾 Commit lockfile back to repo (only if new)
-  - name: Commit package-lock.json
-    run: |
-      cd ssai
-      if [ -f package-lock.json ]; then
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-        git add package-lock.json
-        git commit -m "auto-add package-lock.json" || echo "No changes to commit"
-        git push
-      fi
+      # 💾 Commit lockfile (only if created)
+      - name: Commit package-lock.json
+        run: |
+          cd ssai
+          if [ -f package-lock.json ]; then
+            git config user.name "github-actions"
+            git config user.email "actions@github.com"
+            git add package-lock.json
+            git commit -m "auto-add package-lock.json" || echo "No changes"
+            git push
+          fi
 
-  # 🔐 Login to GHCR
-  - name: Login to GHCR
-    run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      # 🔐 Login to GHCR
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-  # 🐳 Build image
-  - name: Build SSAI Image
-    run: |
-      docker build \
-        -t ghcr.io/westerncoastal/stream-stack/ssai:latest \
-        ./ssai
+      # 🐳 Build image
+      - name: Build SSAI Image
+        run: |
+          docker build \
+            -t ghcr.io/westerncoastal/stream-stack/ssai:latest \
+            ./ssai
 
-  # 📦 Push image
-  - name: Push SSAI Image
-    run: |
-      docker push ghcr.io/westerncoastal/stream-stack/ssai:latest
+      # 📦 Push image
+      - name: Push SSAI Image
+        run: |
+          docker push ghcr.io/westerncoastal/stream-stack/ssai:latest
 
-  # 🔒 Scan built image (better than fs scan)
-  - name: Scan container image
-    uses: aquasecurity/trivy-action@v0.20.0
-    with:
-      image-ref: ghcr.io/westerncoastal/stream-stack/ssai:latest
-      severity: CRITICAL,HIGH
-      exit-code: 1
+      # 🔒 Scan container image
+      - name: Scan container image
+        uses: aquasecurity/trivy-action@v0.20.0
+        with:
+          image-ref: ghcr.io/westerncoastal/stream-stack/ssai:latest
+          severity: CRITICAL,HIGH
+          exit-code: 1
 
-  # 📦 Repomix (optional)
-  - name: Pack repo
-    uses: yamadashy/repomix/.github/actions/repomix@main
-    with:
-      output: repomix-output.xml
-      compress: true
-```
+      # 📦 Repomix
+      - name: Pack repo
+        uses: yamadashy/repomix/.github/actions/repomix@main
+        with:
+          output: repomix-output.xml
+          compress: true
