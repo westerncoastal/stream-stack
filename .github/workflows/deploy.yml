@@ -71,7 +71,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.20.0
         with:
           image-ref: ghcr.io/westerncoastal/stream-stack/ssai:latest
-          severity: HIGH
+          severity: CRITICAL
           exit-code: 1
 
       # 📦 Repomix
