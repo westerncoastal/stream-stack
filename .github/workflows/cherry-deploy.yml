@@ -1,0 +1,30 @@
+name: Cherry Servers Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_id:
+        description: 'Cherry Servers Project ID'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get Server IP from Cherry API
+        id: get_ip
+        run: |
+          IP=$(curl -s -X GET "https://api.cherryservers.com/v1/projects/${{ github.event.inputs.project_id }}/servers" \
+          -H "Authorization: Bearer ${{ secrets.CHERRY_API_TOKEN }}" | jq -r '.[0].ips[0].address')
+          echo "ip=$IP" >> $GITHUB_OUTPUT
+
+      - name: SSH and Launch
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.get_ip.outputs.ip }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: STRIPE_SECRET_KEY,STRIPE_WEBHOOK_SECRET
+          script: |
+            # Run the setup directly from your repo
+            curl -sSL https://raw.githubusercontent.com/${{ github.repository }}/main/setup.sh | bash
